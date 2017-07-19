@@ -19,7 +19,12 @@ var Map = function(options) {
     return new constructor(Object.assign(options, {
         request: function(req) {
             request(req, function() {
-                req.respond.apply(req, arguments);
+                var args = arguments;
+                // Protect ourselves from `request` implementations that try to release Zalgo.
+                // http://blog.izs.me/post/59142742143/designing-apis-for-asynchrony
+                setImmediate(function() {
+                    req.respond.apply(req, args);
+                });
             });
         }
     }));
