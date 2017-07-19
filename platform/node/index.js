@@ -18,14 +18,21 @@ var Map = function(options) {
 
     return new constructor(Object.assign(options, {
         request: function(req) {
-            request(req, function() {
-                var args = arguments;
-                // Protect ourselves from `request` implementations that try to release Zalgo.
-                // http://blog.izs.me/post/59142742143/designing-apis-for-asynchrony
-                setImmediate(function() {
-                    req.respond.apply(req, args);
+            try {
+                request(req, function() {
+                    var args = arguments;
+                    // Protect ourselves from `request` implementations that try to release Zalgo.
+                    // http://blog.izs.me/post/59142742143/designing-apis-for-asynchrony
+                    setImmediate(function() {
+                        req.respond.apply(req, args);
+                    });
                 });
-            });
+            } catch (e) {
+                // Protect against `request` implementations that throw an exception.
+                setImmediate(function() {
+                    req.respond(e);
+                });
+            }
         }
     }));
 };

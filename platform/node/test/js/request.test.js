@@ -66,3 +66,18 @@ var test = require('tape');
         });
     });
 });
+
+test(`render reports an error if the request function throws an exception`, function(t) {
+    var map = new mbgl.Map({
+        request: function() {
+            throw new Error('message');
+        }
+    });
+    map.load(mockfs.style_vector);
+    map.render({ zoom: 16 }, function(err, pixels) {
+        t.assert(err);
+        t.assert(/message/.test(err.message));
+        t.assert(!pixels);
+        t.end();
+    });
+});
