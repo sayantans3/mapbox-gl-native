@@ -9,6 +9,17 @@
 #import <UIKit/UIKit.h>
 #import <UIKit/UIGestureRecognizerSubclass.h>
 
-@interface MGLTiltGestureRecognizer : UIGestureRecognizer
+typedef NS_ENUM(NSUInteger, MGLTiltGestureState) {
+    MGLTiltGestureStatePossible,
+    MGLTiltGestureStateBegan,
+    MGLTiltGestureStateChanged,
+    MGLTiltGestureStateEnded,
+    MGLTiltGestureStateCancelled,
+    MGLTiltGestureStateInvalidated
+};
+
+@interface MGLTiltGestureRecognizer : UIPanGestureRecognizer
+
+@property (nonatomic) MGLTiltGestureState tiltPhase;
 
 @end

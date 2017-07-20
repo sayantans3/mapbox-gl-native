@@ -7,14 +7,7 @@
 //
 
 #import "MGLTiltGestureRecognizer.h"
-
-typedef NS_ENUM(NSUInteger, MGLTiltGestureState) {
-    MGLTiltGestureStateNotStarted,
-    MGLTiltGestureStateInitialPoint,
-    MGLTiltGestureStateInvalidated,
-    MGLTiltGestureStateUp,
-    MGLTiltGestureStateDown,
-};
+#import "MGLGeometry.h"
 
 typedef struct MGLTouchBounds {
     CGPoint west;
@@ -36,11 +29,10 @@ NS_INLINE MGLTouchBounds MGLTouchBoundsMake(CGPoint pointA, CGPoint pointB) {
     return touchBounds;
 }
 
-static CGFloat const fingerThreshold = 40.0;
+static CGFloat const angleThreshold = 20.0;
 
 @interface MGLTiltGestureRecognizer()
 
-@property (nonatomic) MGLTiltGestureState tiltPhase;
 @property (nonatomic) MGLTouchBounds initialTouchBounds;
 @property (nonatomic) CGPoint CGPointNil;
 
@@ -65,7 +57,7 @@ static CGFloat const fingerThreshold = 40.0;
 
 - (void)commonInit {
     _CGPointNil = CGPointMake(CGFLOAT_MAX, CGFLOAT_MAX);
-    _tiltPhase = MGLTiltGestureStateNotStarted;
+    _tiltPhase = MGLTiltGestureStatePossible;
     _initialTouchBounds.east = _CGPointNil;
     _initialTouchBounds.west = _CGPointNil;
 }
@@ -87,95 +79,127 @@ static CGFloat const fingerThreshold = 40.0;
         CGPoint pointA = [touchesArray.firstObject locationInView:self.view];
         CGPoint pointB = [touchesArray.lastObject locationInView:self.view];
         self.initialTouchBounds = MGLTouchBoundsMake(pointA, pointB);
-        self.tiltPhase = MGLTiltGestureStateInitialPoint;
+        self.tiltPhase = MGLTiltGestureStateBegan;
+        self.state = UIGestureRecognizerStateBegan;
     }
-    else {
-        // Ignore all but the first touch.
-        for (UITouch *touch in touches) {
-            [self ignoreTouch:touch forEvent:event];
-        }
-    }
+
 }
 
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesMoved:touches withEvent:event];
-
+    
     NSArray *touchesArray = touches.allObjects;
+
     
-    // There should be only the first touch.
-    if (touchesArray.count != 2) {
-        self.state = UIGestureRecognizerStateFailed;
-        return;
-    }
-    
-    CGPoint currentPointA = [touchesArray.firstObject locationInView:self.view];
-    CGPoint currentPointB = [touchesArray.lastObject locationInView:self.view];
-    MGLTouchBounds currentBounds = MGLTouchBoundsMake(currentPointA, currentPointB);
-    
-    if (![self isValidBounds:currentBounds]) {
-        self.state = UIGestureRecognizerStateFailed;
-        return;
-    }
-    
-    if (self.tiltPhase == MGLTiltGestureStateInitialPoint || self.tiltPhase == MGLTiltGestureStateDown  ||
-        self.tiltPhase == MGLTiltGestureStateUp) {
-        // Make sure the initial movement is down and to the right.
-        if (currentBounds.west.y > self.initialTouchBounds.west.y &&
-            currentBounds.east.y > self.initialTouchBounds.east.y) {
-            self.tiltPhase = MGLTiltGestureStateDown;
-        }
-        else if (currentBounds.west.y <= self.initialTouchBounds.west.y && currentBounds.east.y <= self.initialTouchBounds.east.y) {
-            self.tiltPhase = MGLTiltGestureStateUp;
-        }
-        else {
-            self.state = UIGestureRecognizerStateFailed;
+    if (touches.count == 2) {
+        CGPoint currentPointA = [touchesArray.firstObject locationInView:self.view];
+        CGPoint currentPointB = [touchesArray.lastObject locationInView:self.view];
+        MGLTouchBounds currentBounds = MGLTouchBoundsMake(currentPointA, currentPointB);
+        
+        if ([self isValidBounds:currentBounds] && (self.tiltPhase == MGLTiltGestureStateBegan ||
+                                                   self.tiltPhase == MGLTiltGestureStateChanged)) {
+            // Make sure the initial movement is up/down
+            if ((currentBounds.west.y > self.initialTouchBounds.west.y &&
+                currentBounds.east.y > self.initialTouchBounds.east.y) ||
+                (currentBounds.west.y <= self.initialTouchBounds.west.y &&
+                 currentBounds.east.y <= self.initialTouchBounds.east.y)) {
+                self.tiltPhase = MGLTiltGestureStateChanged;
+            } else {
+                self.tiltPhase = MGLTiltGestureStateInvalidated;
+            }
+        } else {
             self.tiltPhase = MGLTiltGestureStateInvalidated;
         }
         
+    } else {
+        // Workaround to make a smooth transition for tilting the map
+        // for some reason I have detected we get a single touch somtimes
+        if ( [self isWithinThreshold] )
+        {
+            self.tiltPhase = MGLTiltGestureStateChanged;
+        } else {
+            self.tiltPhase = MGLTiltGestureStateInvalidated;
+        }
     }
+    self.state = UIGestureRecognizerStateChanged;
 }
 
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesEnded:touches withEvent:event];
+
     NSArray *touchesArray = touches.allObjects;
     
-    if (touchesArray.count != 2) {
-        self.state = UIGestureRecognizerStateFailed;
-        return;
+    // Workaround to make a smooth transition for tilt
+    if (touches.count == 2) {
+        CGPoint currentPointA = [touchesArray.firstObject locationInView:self.view];
+        CGPoint currentPointB = [touchesArray.lastObject locationInView:self.view];
+        MGLTouchBounds currentBounds = MGLTouchBoundsMake(currentPointA, currentPointB);
+        
+        if ([self isValidBounds:currentBounds] && (self.tiltPhase == MGLTiltGestureStateBegan ||
+                                                   self.tiltPhase == MGLTiltGestureStateChanged)) {
+            // Make sure the initial movement is up/down
+            if ((currentBounds.west.y > self.initialTouchBounds.west.y &&
+                 currentBounds.east.y > self.initialTouchBounds.east.y) ||
+                (currentBounds.west.y <= self.initialTouchBounds.west.y &&
+                 currentBounds.east.y <= self.initialTouchBounds.east.y)) {
+                    self.tiltPhase = MGLTiltGestureStateEnded;
+                } else {
+                    self.tiltPhase = MGLTiltGestureStateInvalidated;
+                }
+        }
+    } else {
+        if ( [self isWithinThreshold] )
+        {
+            self.tiltPhase = MGLTiltGestureStateEnded;
+        } else {
+            self.tiltPhase = MGLTiltGestureStateInvalidated;
+        }
     }
-    
-    if (self.state == UIGestureRecognizerStatePossible && (self.tiltPhase == MGLTiltGestureStateDown  ||
-        self.tiltPhase == MGLTiltGestureStateUp)) {
-        self.state = UIGestureRecognizerStateRecognized;
-    }
-    else {
-        self.state = UIGestureRecognizerStateFailed;
-    }
+    self.state = UIGestureRecognizerStateEnded;
 }
 
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesCancelled:touches withEvent:event];
-    self.tiltPhase = MGLTiltGestureStateNotStarted;
+    self.tiltPhase = MGLTiltGestureStateCancelled;
     self.state = UIGestureRecognizerStateCancelled;
 }
 
 - (void)reset {
     [super reset];
-    self.tiltPhase = MGLTiltGestureStateNotStarted;
+    self.tiltPhase = MGLTiltGestureStatePossible;
     self.initialTouchBounds = MGLTouchBoundsMake(self.CGPointNil, self.CGPointNil);
 }
 
 - (BOOL)isValidBounds:(MGLTouchBounds)bounds {
     BOOL state = YES;
     
-    CGFloat horizontalDistance = fabs(bounds.east.x - bounds.west.x);
-    CGFloat verticalDistance = fabs(bounds.east.y - bounds.west.y);
+    float slope = (bounds.west.y - bounds.east.y) / (bounds.west.x - bounds.east.x);
     
-    if (horizontalDistance < fingerThreshold && verticalDistance > fingerThreshold) {
+    float angle = atan(fabs(slope));
+    float degrees = MGLDegreesFromRadians(angle);
+    
+    if (degrees > angleThreshold) {
         state = NO;
     }
     
     return state;
+}
+
+- (BOOL)isWithinThreshold {
+    BOOL isWithinThreshold = YES;
+    // Workaround to make a smooth transition for tilting the map
+    // for some reason I have detected we get a single touch somtimes
+    CGPoint velocity = [self velocityInView:self.view];
+    double gestureAngle = MGLDegreesFromRadians(atan(velocity.y / velocity.x));
+    double delta = fabs((fabs(gestureAngle) - 90.0));
+    
+    // cancel if gesture angle is not 90º±20º (more or less vertical)
+    if ( delta < angleThreshold )
+    {
+        isWithinThreshold = NO;
+    }
+    
+    return isWithinThreshold;
 }
 
 @end

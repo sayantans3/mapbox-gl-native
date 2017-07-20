@@ -65,6 +65,7 @@
 #import "MGLAnnotationContainerView.h"
 #import "MGLAnnotationContainerView_Private.h"
 #import "MGLAttributionInfo_Private.h"
+#import "MGLTiltGestureRecognizer.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -252,7 +253,7 @@ public:
 @property (nonatomic) UIPinchGestureRecognizer *pinch;
 @property (nonatomic) UIRotationGestureRecognizer *rotate;
 @property (nonatomic) UILongPressGestureRecognizer *quickZoom;
-@property (nonatomic) UIPanGestureRecognizer *twoFingerDrag;
+@property (nonatomic) MGLTiltGestureRecognizer *twoFingerDrag;
 /// Mapping from reusable identifiers to annotation images.
 @property (nonatomic) NS_MUTABLE_DICTIONARY_OF(NSString *, MGLAnnotationImage *) *annotationImagesByIdentifier;
 /// Currently shown popover representing the selected annotation.
@@ -532,7 +533,7 @@ public:
     _singleTapGestureRecognizer.delegate = self;
     [self addGestureRecognizer:_singleTapGestureRecognizer];
 
-    _twoFingerDrag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleTwoFingerDragGesture:)];
+    _twoFingerDrag = [[MGLTiltGestureRecognizer alloc] initWithTarget:self action:@selector(handleTwoFingerDragGesture:)];
     _twoFingerDrag.minimumNumberOfTouches = 2;
     _twoFingerDrag.maximumNumberOfTouches = 2;
     _twoFingerDrag.delegate = self;
@@ -1677,7 +1678,7 @@ public:
     }
 }
 
-- (void)handleTwoFingerDragGesture:(UIPanGestureRecognizer *)twoFingerDrag
+- (void)handleTwoFingerDragGesture:(MGLTiltGestureRecognizer *)twoFingerDrag
 {
     if ( ! self.isPitchEnabled) return;
 
@@ -1689,7 +1690,7 @@ public:
         [self notifyGestureDidBegin];
     }
 
-    if (twoFingerDrag.state == UIGestureRecognizerStateBegan || twoFingerDrag.state == UIGestureRecognizerStateChanged)
+    if (twoFingerDrag.tiltPhase == MGLTiltGestureStateBegan || twoFingerDrag.tiltPhase == MGLTiltGestureStateChanged)
     {
         CGFloat gestureDistance = CGPoint([twoFingerDrag translationInView:twoFingerDrag.view]).y;
         CGFloat currentPitch = _mbglMap->getPitch();
@@ -1710,7 +1711,7 @@ public:
 
         [self cameraIsChanging];
     }
-    else if (twoFingerDrag.state == UIGestureRecognizerStateEnded || twoFingerDrag.state == UIGestureRecognizerStateCancelled)
+    else if (twoFingerDrag.tiltPhase == MGLTiltGestureStateEnded || twoFingerDrag.tiltPhase == MGLTiltGestureStateCancelled)
     {
         [self notifyGestureDidEndWithDrift:NO];
         [self unrotateIfNeededForGesture];
@@ -1788,39 +1789,6 @@ public:
     return [gesture locationInView:gesture.view];
 }
 
-- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer
-{
-    if ([gestureRecognizer isKindOfClass:[UIPanGestureRecognizer class]])
-    {
-        UIPanGestureRecognizer *panGesture = (UIPanGestureRecognizer *)gestureRecognizer;
-
-        if (panGesture.minimumNumberOfTouches == 2)
-        {
-            CGPoint velocity = [panGesture velocityInView:panGesture.view];
-            double gestureAngle = MGLDegreesFromRadians(atan(velocity.y / velocity.x));
-            double horizontalToleranceDegrees = 20.0;
-
-            // cancel if gesture angle is not 90º±20º (more or less vertical)
-            if ( ! (fabs((fabs(gestureAngle) - 90.0)) < horizontalToleranceDegrees))
-            {
-                return NO;
-            }
-        }
-    }
-    else if (gestureRecognizer == _singleTapGestureRecognizer)
-    {
-      // Gesture will be recognized if it could deselect an annotation
-      if(!self.selectedAnnotation)
-      {
-          id<MGLAnnotation>annotation = [self annotationForGestureRecognizer:(UITapGestureRecognizer*)gestureRecognizer persistingResults:NO];
-          if(!annotation) {
-              return NO;
-          }
-      }
-    }
-    return YES;
-}
-
 - (void)handleCalloutAccessoryTapGesture:(UITapGestureRecognizer *)tap
 {
     if ([self.delegate respondsToSelector:@selector(mapView:annotation:calloutAccessoryControlTapped:)])
@@ -1870,6 +1838,24 @@ public:
 
     return ([validSimultaneousGestures containsObject:gestureRecognizer] && [validSimultaneousGestures containsObject:otherGestureRecognizer]);
 }
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer
+{
+    if (gestureRecognizer == _singleTapGestureRecognizer)
+    {
+        // Gesture will be recognized if it could deselect an annotation
+        if(!self.selectedAnnotation)
+        {
+            id<MGLAnnotation>annotation = [self annotationForGestureRecognizer:(UITapGestureRecognizer*)gestureRecognizer persistingResults:NO];
+            if(!annotation) {
+                return NO;
+            }
+        }
+    }
+    return YES;
+}
+
+
 
 - (void)trackGestureEvent:(NSString *)gestureID forRecognizer:(UIGestureRecognizer *)recognizer
 {
