@@ -390,6 +390,7 @@ set(MBGL_CORE_FILES
     # style/expression
     include/mbgl/style/expression/compound_expression.hpp
     include/mbgl/style/expression/expression.hpp
+    include/mbgl/style/expression/match.hpp
     include/mbgl/style/expression/parse.hpp
     include/mbgl/style/expression/parsing_context.hpp
     include/mbgl/style/expression/type.hpp
